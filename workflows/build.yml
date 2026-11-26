@@ -1,0 +1,63 @@
+name: Build installers
+
+on:
+  workflow_dispatch:
+  push:
+    tags: [ 'v*' ]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\OptoComp.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OptoComp-Windows-Setup
+          path: installer/Output/OptoComp-Windows-Setup.exe
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (Universal: Apple Silicon + Intel)
+        run: >
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Package .pkg
+        run: |
+          VST3=$(find build -type d -name "OptoComp.vst3" | head -n 1)
+          echo "Found: $VST3"
+          codesign --force --deep -s - "$VST3"
+          mkdir -p pkgroot/Library/Audio/Plug-Ins/VST3
+          cp -R "$VST3" pkgroot/Library/Audio/Plug-Ins/VST3/
+          pkgbuild --root pkgroot \
+                   --identifier com.yourname.optocomp \
+                   --version 0.1.0 \
+                   --install-location / \
+                   OptoComp-macOS.pkg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OptoComp-macOS-pkg
+          path: OptoComp-macOS.pkg
